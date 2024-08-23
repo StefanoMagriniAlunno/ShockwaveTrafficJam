@@ -3,14 +3,20 @@ import sys
 from invoke import task  # type: ignore
 
 list_packages = [
+    # base
     "pytest jupyter",
     "sphinx sphinxcontrib-plantuml esbonio sphinx_rtd_theme",
-    "pillow imageio",
-    "numpy scipy pandas scikit-learn",  # scientific computing
-    "matplotlib seaborn plotly",  # plotting
-    "tqdm colorama",  # utilities
-    "torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124",  # gpu computing
-    "pycuda",  # gpu computing
+    # suite torch
+    "torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124",
+    # suite cuda
+    "pycuda",
+    "--extra-index-url=https://pypi.nvidia.com cudf-cu12==24.8.* cuml-cu12==24.8.*",
+    # scientifing computing
+    "numpy scipy pandas scikit-learn",
+    # data visualization
+    "matplotlib seaborn plotly",
+    # utilities
+    "tqdm colorama",
 ]
 
 

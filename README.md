@@ -1,5 +1,5 @@
-# Machine Unlearning
-This is the public GitHub repository of Project 2, entitled "Spectral Maps Rediscovered."
+# Shockwave Traffic Jam
+This is the public GitHub repository of Project 2, entitled "Shockwave Traffic Jam."
 Please consult the repository's documentation for instructions on downloading and installing the software.
 For further information on the code, please refer to the `docs` folder.
 
@@ -9,7 +9,7 @@ To `download` this repository
 ~~~bash
     cd complete_path/where/install/repository
     # Now we create a directory called `Machine Unlearning` with repository:
-    git clone https://github.com/StefanoMagriniAlunno/Machine Unlearning
+    git clone https://github.com/StefanoMagriniAlunno/ShockwaveTrafficJam
 ~~~
 
 ### Prerequisites
