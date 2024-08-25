@@ -10,7 +10,7 @@ class DataLoader:
         self,
         dataset: dataset.Dataset,
         batch_size: int,
-        shuffle: bool,
+        shuffle: bool = False,
         transform: transforms.Compose = transforms.Compose([]),
         **kwargs
     ):
@@ -27,24 +27,29 @@ class DataLoader:
 
             # prepare simulation parameters
             self.Vmax_range: Tuple[float, float] = kwargs.get(
-                "Vmax", (8.0, 20.0)
-            )  # maximum velocity of the vehicles
+                "Vmax", (20.0, 25.0)  # maximum velocity of the vehicles
+            )
             self.tau_range: Tuple[float, float] = kwargs.get(
-                "tau", (0.5, 2.0)
-            )  # reaction time of the vehicles for OVM
+                "tau", (0.5, 2.0)  # reaction time of the vehicles for OVM
+            )
             self.d0_FTL_range: Tuple[float, float] = kwargs.get(
-                "d0_FTL", (4.0, 6.0)
-            )  # minimum distance between vehicles for FTL
+                "d0_FTL", (4.0, 5.0)  # minimum distance between vehicles for FTL
+            )
             self.gamma_range: Tuple[float, float] = kwargs.get(
-                "gamma", (1.0, 2.0)
-            )  # intensity of the FTL model
+                "gamma",
+                (
+                    1.0,
+                    2.0,
+                ),  # intensity of the FTL model when the distance between vehicles is less than d0_FTL
+            )
             self.beta_range: Tuple[float, float] = kwargs.get(
-                "beta", (0.0, 10.0)
-            )  # weight for OVM (FTL has weight 1)
+                "beta", (0.0, 2.0)  # weight for OVM (FTL has weight 1)
+            )
             self.n_vehicles: int = kwargs.get(
-                "n_vehicles", 100
-            )  # max number of vehicles
+                "n_vehicles", 100  # max number of vehicles
+            )
         else:
+            self.shuffle = shuffle
             if len(transform) > 0:
                 raise ValueError("Transforms are not allowed in normal mode")
             if shuffle:
@@ -108,7 +113,7 @@ class DataLoader:
     # l'iteratore deve restituire un batch di dati
     # quindi prende un batch di dati dal dataset, moltiplica positions e velocities per la grandezza del dataset
     # altera i dati con transform
-    def __next__(self):
+    def __next__(self) -> simulator.databatch:
         if self.current_index >= len(self.dataset):
             raise StopIteration
 
@@ -123,6 +128,23 @@ class DataLoader:
             dataset_batch = self.dataset[
                 self.current_index : self.current_index + batch_size
             ]
+
+        if self.dataset.mode == "normal":
+            # calcolo il numero di veicoli
+            n_vehicles = (dataset_batch.size(1) - 8) // 2
+            self.current_index += self.batch_size
+            return simulator.databatch(
+                dataset_batch[:, :n_vehicles],  # x
+                dataset_batch[:, n_vehicles : 2 * n_vehicles],  # v
+                dataset_batch[:, 2 * n_vehicles : (2 * n_vehicles + 1)],  # len_road
+                dataset_batch[:, (2 * n_vehicles + 1) : (2 * n_vehicles + 2)],  # d0_OVM
+                dataset_batch[:, (2 * n_vehicles + 2) : (2 * n_vehicles + 3)],  # Delta
+                dataset_batch[:, (2 * n_vehicles + 3) : (2 * n_vehicles + 4)],  # Vmax
+                dataset_batch[:, (2 * n_vehicles + 4) : (2 * n_vehicles + 5)],  # tau
+                dataset_batch[:, (2 * n_vehicles + 5) : (2 * n_vehicles + 6)],  # d0_FTL
+                dataset_batch[:, (2 * n_vehicles + 6) : (2 * n_vehicles + 7)],  # gamma
+                dataset_batch[:, (2 * n_vehicles + 7) : (2 * n_vehicles + 8)],  # beta
+            )
 
         # con le densità e il numero di veicoli deduco la lunghezza della strada
         len_road = self.n_vehicles / dataset_batch[:, 0]
@@ -161,4 +183,11 @@ class DataLoader:
 
     def to(self, device):
         self.dataset.to(device)
+        return self
+
+    def reset(self):
+        if self.dataset.mode == "root":
+            raise ValueError("Reset is not allowed in root mode")
+        self.dataset.reset()
+        self.__init__(self.dataset, self.batch_size, self.shuffle)
         return self
