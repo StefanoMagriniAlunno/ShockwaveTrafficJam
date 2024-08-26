@@ -1,9 +1,11 @@
 import os
+from typing import List
 
+import plotly.graph_objects as go
 import torch
 
-max_acceleration = 18.0  # maximum acceleration for the vehicles (m/s^2)
-max_deceleration = 180.0  # maximum deceleration for the vehicles (m/s^2)
+max_acceleration = 9.0  # maximum acceleration for the vehicles (m/s^2)
+max_deceleration = 90.0  # maximum deceleration for the vehicles (m/s^2)
 
 
 class databatch:
@@ -44,16 +46,16 @@ class databatch:
             beta: weight for OVM and FTL (0 <= alpha)
                 it is a tensor of size (batch_size)
         """
-        self.x = x
-        self.v = v
-        self.len_road = len_road.reshape(-1, 1)
-        self.d0_OVM = d0_OVM.reshape(-1, 1)
-        self.Delta = Delta.reshape(-1, 1)
-        self.Vmax = Vmax.reshape(-1, 1)
-        self.tau = tau.reshape(-1, 1)
-        self.d0_FTL = d0_FTL.reshape(-1, 1)
-        self.gamma = gamma.reshape(-1, 1)
-        self.beta = beta.reshape(-1, 1)
+        self.x = x.clone()
+        self.v = v.clone()
+        self.len_road = len_road.reshape(-1, 1).clone()
+        self.d0_OVM = d0_OVM.reshape(-1, 1).clone()
+        self.Delta = Delta.reshape(-1, 1).clone()
+        self.Vmax = Vmax.reshape(-1, 1).clone()
+        self.tau = tau.reshape(-1, 1).clone()
+        self.d0_FTL = d0_FTL.reshape(-1, 1).clone()
+        self.gamma = gamma.reshape(-1, 1).clone()
+        self.beta = beta.reshape(-1, 1).clone()
 
         self.dtype = x.dtype
         self.device = x.device
@@ -84,7 +86,7 @@ class databatch:
         d_v[~mask] = v[~mask, 0] - v[~mask, -1]
         d_v = d_v.reshape(-1, 1)
         # computo la velocità ideale
-        trasformer_mask = kwargs.get(
+        transformer_mask = kwargs.get(
             "mask", torch.zeros((16, 16), dtype=torch.bool, device=self.device)
         )
         # controllo che self.record sia in __dict__
@@ -93,19 +95,17 @@ class databatch:
         if record:
             # unisco d_x d_v
             new_state = torch.cat([d_x, d_v], dim=1).reshape(-1, 2, 1)
-            if hasattr(self, "record"):
-                raise ValueError("record not found")
             # devo riportare new_state nel record, quindi shift di 1 di self.record e aggiunta di new_state
             self.record: torch.Tensor = torch.cat(
                 [self.record[:, :, 1:], new_state], dim=2
             )
             # computo la velocità ideale
-            V = self.Vmax * model(self.record, trasformer_mask)
+            V = self.Vmax * model(self.record, transformer_mask)
         else:
             # non è necessario aggiornare il record, si riporta quindi un record fittizio
             new_state = torch.cat([d_x, d_v], dim=1).reshape(-1, 2, 1)
             fake_record = torch.cat([self.record[:, :, 1:], new_state], dim=2)
-            V = self.Vmax * model(fake_record, trasformer_mask)
+            V = self.Vmax * model(fake_record, transformer_mask)
         return (self.beta * self.OVM(V, v) + self.FTL(d_x, d_v)) / (1 + self.beta)
 
     def auto_F(self, x: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
@@ -132,7 +132,7 @@ class databatch:
 
         # calcolo la forza
         F = self.auto_F(self.x, self.v)
-        torch.clamp(F, -max_deceleration, max_acceleration, out=F)
+        # torch.clamp(F, -max_deceleration, max_acceleration, out=F)
 
         # f = [v,F]
 
@@ -141,7 +141,7 @@ class databatch:
 
         # calcolo nuovamente la forza
         F_heun = self.auto_F(self.x + d_x, self.v + d_v)
-        torch.clamp(F, -max_deceleration, max_acceleration, out=F_heun)
+        # torch.clamp(F, -max_deceleration, max_acceleration, out=F_heun)
 
         # f_tilde = [self.v + d_v, F_heun]
 
@@ -154,7 +154,7 @@ class databatch:
 
         # impongo i vincoli
         torch.remainder(self.x, self.len_road, out=self.x)
-        torch.clamp(self.v, torch.zeros_like(self.Vmax), self.Vmax, out=self.v)
+        # torch.clamp(self.v, torch.zeros_like(self.Vmax), self.Vmax, out=self.v)
 
         # nan check
         if torch.isnan(self.x).any() or torch.isnan(self.v).any():
@@ -165,11 +165,11 @@ class databatch:
 
         # calcolo la forza che tutti i veicoli dovrebbero avere
         F = self.auto_F(self.x, self.v)
-        F = torch.clamp(F, -max_deceleration, max_acceleration)
+        # F = torch.clamp(F, -max_deceleration, max_acceleration)
         d_x = self.v * dt
         d_v = F * dt
         F_heun = self.auto_F(self.x + d_x, self.v + d_v)
-        F_heun = torch.clamp(F_heun, -max_deceleration, max_acceleration)
+        # F_heun = torch.clamp(F_heun, -max_deceleration, max_acceleration)
         d_x = (dt / 2) * (2 * self.v + d_v)
         d_v = (dt / 2) * (F + F_heun)
 
@@ -177,18 +177,18 @@ class databatch:
         mask = torch.ones((16, 16), dtype=torch.bool, device=self.device)
         mask = torch.triu(mask, diagonal=1)
         F = self.F(model, index, self.x, self.v, False, mask=mask)
-        F = torch.clamp(F, -max_deceleration, max_acceleration)
+        # F = torch.clamp(F, -max_deceleration, max_acceleration)
         d_x = self.v * dt
         d_v = F * dt
         F_heun = self.F(model, index, self.x + d_x, self.v + d_v, True, mask=mask)
-        F_heun = torch.clamp(F_heun, -max_deceleration, max_acceleration)
+        # F_heun = torch.clamp(F_heun, -max_deceleration, max_acceleration)
         d_x = (dt / 2) * (2 * self.v + d_v)
         d_v = (dt / 2) * (F + F_heun)
 
         self.x += d_x
         self.v += d_v
         self.x = torch.remainder(self.x, self.len_road)
-        self.v = torch.clamp(self.v, torch.zeros_like(self.Vmax), self.Vmax)
+        # self.v = torch.clamp(self.v, torch.zeros_like(self.Vmax), self.Vmax)
 
         # nan check
         if torch.isnan(self.x).any() or torch.isnan(self.v).any():
@@ -210,7 +210,7 @@ class databatch:
 
         # calcolo la forza
         F = self.auto_F(self.x, self.v)
-        torch.clamp(F, -max_deceleration, max_acceleration, out=F)
+        # torch.clamp(F, -max_deceleration, max_acceleration, out=F)
 
         # f = [v,F]
 
@@ -219,7 +219,7 @@ class databatch:
 
         # calcolo nuovamente la forza
         F_heun = self.auto_F(self.x + d_x, self.v + d_v)
-        torch.clamp(F, -max_deceleration, max_acceleration, out=F_heun)
+        # torch.clamp(F, -max_deceleration, max_acceleration, out=F_heun)
 
         # f_tilde = [self.v + d_v, F_heun]
 
@@ -232,7 +232,7 @@ class databatch:
 
         # impongo i vincoli
         torch.remainder(self.x, self.len_road, out=self.x)
-        torch.clamp(self.v, torch.zeros_like(self.Vmax), self.Vmax, out=self.v)
+        # torch.clamp(self.v, torch.zeros_like(self.Vmax), self.Vmax, out=self.v)
 
         # nan check
         if torch.isnan(self.x).any() or torch.isnan(self.v).any():
@@ -254,10 +254,9 @@ class databatch:
 
     def energy(self) -> torch.Tensor:
         # calcolo l'energia cinetica
-        return (0.5 * self.v**2).mean(dim=1) / (self.Vmax**2)
+        return (0.5 * self.v**2).mean(dim=1) / (self.Vmax**2).reshape(-1)
 
     def visual(self):
-        import plotly.graph_objects as go
 
         # calcolo il raggio della strada
         r = self.len_road / (2 * 3.1415)
@@ -270,10 +269,99 @@ class databatch:
         fig = go.Figure()
         for i in range(self.shape[0]):
             fig.add_trace(
-                go.Scatter(x=x[i].cpu().numpy(), y=y[i].cpu().numpy(), mode="markers")
+                go.Scatter(
+                    x=x[i, :].cpu().numpy(),
+                    y=y[i, :].cpu().numpy(),
+                    mode="markers",
+                    marker=dict(symbol="circle"),
+                    name=f"case {i}",
+                )
             )
-        fig.update_layout(width=800, height=800)
+        fig.update_layout(
+            width=800,
+            height=800,
+            showlegend=True,
+        )
         fig.show()
+
+    def frame(self, model: torch.nn.Module, index: List[int], dt: float) -> go.Frame:
+        # questa funzione crea un go.Frame per l'animazione e aggiorna lo stato del sistema
+
+        # calcolo il raggio della strada
+        r = self.len_road / (2 * 3.1415)
+
+        theta = (self.x / self.len_road) * (2 * 3.1415)
+        x = r * torch.cos(theta)
+        y = r * torch.sin(theta)
+
+        # creo l'animazione:
+        # scatter blu per tutti i veicoli a forma di cerchio
+        # scatter rosso per il veicolo autonomo a forma di x
+
+        # creo i dati da mettere nel frame
+        data: List[go.Scatter] = []
+        for i in range(self.shape[0]):
+            data.append(
+                go.Scatter(
+                    x=torch.cat(
+                        [x[i, : index[i]].detach().cpu(), x[i, index[i] + 1 :].cpu()]
+                    )
+                    .detach()
+                    .numpy(),
+                    y=torch.cat(
+                        [y[i, : index[i]].detach().cpu(), y[i, index[i] + 1 :].cpu()]
+                    )
+                    .detach()
+                    .numpy(),
+                    mode="markers",
+                    marker=dict(color="blue", symbol="circle"),
+                    legendgroup="vehicles",
+                    name="Vehicles",
+                )
+            )
+            data.append(
+                go.Scatter(
+                    x=x[i, index[i]].detach().cpu().numpy(),
+                    y=y[i, index[i]].detach().cpu().numpy(),
+                    mode="markers",
+                    marker=dict(color="red", symbol="x"),
+                    legendgroup="autonomous",
+                    name="Autonomous",
+                )
+            )
+        frame = go.Frame(data=data)
+
+        # aggiorno il sistema
+        self.step(dt, model, torch.tensor(index, dtype=torch.long, device=self.device))
+
+        return frame
+
+    def auto_frame(self, dt: float) -> go.Frame:
+        # questa funzione crea un go.Frame per l'animazione e aggiorna lo stato del sistema
+
+        # calcolo il raggio della strada
+        r = self.len_road / (2 * 3.1415)
+
+        theta = (self.x / self.len_road) * (2 * 3.1415)
+        x = r * torch.cos(theta)
+        y = r * torch.sin(theta)
+
+        # creo i dati da mettere nel frame
+        data: List[go.Scatter] = []
+        for i in range(self.shape[0]):
+            data.append(
+                go.Scatter(
+                    x=x[i, :].detach().cpu().numpy(),
+                    y=y[i, :].detach().cpu().numpy(),
+                    mode="markers",
+                )
+            )
+        frame = go.Frame(data=data)
+
+        # aggiorno il sistema
+        self.auto_step(dt)
+
+        return frame
 
     def detach(self):
         self.x = self.x.detach()
@@ -304,7 +392,7 @@ class databatch:
         self.device = device
         return self
 
-    def save(self, index: int, path: str):
+    def save(self, path: str):
         # concateno tutti i tensori in un solo tensore
         self_tensor = torch.cat(
             [
@@ -321,7 +409,177 @@ class databatch:
             ],
             dim=1,
         )
+        # controllo quale sia l'indice più alto tra quelli presenti nella cartella
+        files = [
+            f.split("_")[1]
+            for f in os.listdir(path)
+            if f.split("_")[0] == "ShockwaveTrafficJam"
+        ]
+        if not files:
+            index = 0
+        else:
+            index = max([int(f) for f in files]) + 1
         torch.save(
             self_tensor,
             os.path.join(path, f"ShockwaveTrafficJam_{index}_{self.shape}.pt"),
         )
+
+
+def show_video(
+    sim: List[databatch],
+    model: torch.nn.Module,
+    index: List[int],
+    dt: float,
+    n_steps: int,
+):
+    # simulo senza modello per 316 step
+    for i in range(len(index)):
+        sim[i].record_simulate(
+            dt, torch.tensor([index[i]], dtype=torch.long, device=sim[i].device), 316
+        )
+
+    # definisco la figura dove saranno inseriti tutti i video
+    fig = go.Figure()
+
+    frames: List[go.Frame] = []
+    for step in range(n_steps):
+        sim_frames: List[go.Frame] = []
+        for i in range(len(index)):
+            sim_frame = sim[i].frame(model, [index[i]], dt)
+            sim_frames.append(sim_frame)
+        # sovrappongo tutti i sim_frames
+        frame_data = [obj for frame in sim_frames for obj in frame.data]
+        fram_layout = go.Layout(
+            annotations=[
+                dict(
+                    x=0.5,
+                    y=1.1,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    text=f"t = {step * dt:.1f}s",
+                )
+            ]
+        )
+        frames.append(go.Frame(data=frame_data, layout=fram_layout))
+        torch.cuda.empty_cache()
+
+    fig.add_traces(frames[0].data)
+    fig.frames = frames
+
+    # configuro l'animazione
+    fig.update_layout(
+        width=800,
+        height=800,
+        showlegend=True,
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=False,
+                buttons=[
+                    dict(
+                        label="Play",
+                        method="animate",
+                        args=[
+                            None,
+                            dict(
+                                frame=dict(duration=int(dt * 1000), redraw=True),
+                                fromcurrent=True,
+                            ),
+                        ],
+                    ),
+                    dict(
+                        label="Pause",
+                        method="animate",
+                        args=[
+                            [None],
+                            dict(
+                                mode="immediate", frame=dict(duration=0, redraw=False)
+                            ),
+                        ],
+                    ),
+                    dict(
+                        label="RePlay",
+                        method="animate",
+                        args=[
+                            None,
+                            dict(mode="immediate", frame=dict(duration=0, redraw=True)),
+                        ],
+                    ),
+                ],
+            )
+        ],
+    )
+    fig.show()
+
+
+def auto_show_video(sim: databatch, dt: float, n_steps: int):
+
+    # definisco la figura dove saranno inseriti tutti i video
+    fig = go.Figure()
+
+    frames: List[go.Frame] = []
+    for step in range(n_steps):
+        frame_data = [obj for obj in sim.auto_frame(dt).data]
+        frame_layout = go.Layout(
+            annotations=[
+                dict(
+                    x=0.5,
+                    y=1.1,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    text=f"t = {step * dt:.1f}s",
+                )
+            ]
+        )
+        frames.append(go.Frame(data=frame_data, layout=frame_layout))
+        torch.cuda.empty_cache()
+
+    fig.add_traces(frames[0].data)
+    fig.frames = frames
+
+    # configuro l'animazione
+    fig.update_layout(
+        width=800,
+        height=800,
+        showlegend=True,
+        updatemenus=[
+            dict(
+                type="buttons",
+                showactive=False,
+                buttons=[
+                    dict(
+                        label="Play",
+                        method="animate",
+                        args=[
+                            None,
+                            dict(
+                                frame=dict(duration=int(dt * 1000), redraw=True),
+                                fromcurrent=True,
+                            ),
+                        ],
+                    ),
+                    dict(
+                        label="Pause",
+                        method="animate",
+                        args=[
+                            [None],
+                            dict(
+                                mode="immediate", frame=dict(duration=0, redraw=False)
+                            ),
+                        ],
+                    ),
+                    dict(
+                        label="RePlay",
+                        method="animate",
+                        args=[
+                            None,
+                            dict(mode="immediate", frame=dict(duration=0, redraw=True)),
+                        ],
+                    ),
+                ],
+            )
+        ],
+    )
+    fig.show()

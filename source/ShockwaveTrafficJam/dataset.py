@@ -1,6 +1,6 @@
 # source/dataset.py
 import os
-from typing import Tuple
+from typing import List, Tuple
 
 import torch
 
@@ -23,20 +23,20 @@ def make_traffic(size: int, device: torch.device, path: str, **kwargs):
 
     # read parameters
     density_range: Tuple[float, float] = kwargs.get(
-        "density", (0.05, 0.1)  # range of the density of vehicles
+        "density", (0.025, 0.03)  # range of the density of vehicles
     )
     d0_OVM_range: Tuple[float, float] = kwargs.get(
         "d0_OVM",
         (
-            12.0,
-            17.0,
+            40.0,
+            50.0,
         ),  # range of the parameter d0_OVM : security distance between vehicles
     )
     Delta_range: Tuple[float, float] = kwargs.get(
         "Delta",
         (
-            0.5,
-            1.0,
+            5.0,
+            10.0,
         ),  # range of the parameter Delta : sensitivity of the driver to the distance between vehicles (Delta=0 -> maximum sensitivity)
     )
 
@@ -119,7 +119,9 @@ class Dataset:
             return sum([len(d) for d in self.dataset])
         return len(self.dataset)
 
-    def __getitem__(self, idx) -> torch.Tensor:
+    def __getitem__(
+        self, idx: int | slice | List[int]
+    ) -> torch.Tensor | List[torch.Tensor]:
         if type(self.dataset) is list:
             if type(idx) is slice:
                 idx_start: int | None = idx.start
@@ -170,14 +172,29 @@ class Dataset:
                     # controllo che i due indici siano dello stesso dataset
                     if start[0] != stop[0]:
                         raise ValueError("Cannot slice multiple datasets")
-                return self.dataset[start[0]][start[1] : stop[1] : idx.step]
-            # cerco il dataset di appartenenza
-            for i, d in enumerate(self.dataset):
-                if idx < len(d):
-                    return d[idx]
-                idx -= len(d)
-            raise ValueError("Index out of range")
-        return self.dataset[idx]
+                return self.dataset[start[0]][start[1] : stop[1] : idx.step, :].clone()
+            elif type(idx) is list:
+                # cerco il dataset di appartenenza per ogni indice
+                L: List[torch.Tensor] = []
+                for index in idx:
+                    for i, d in enumerate(self.dataset):
+                        if index < len(d):
+                            L.append(d[index, :].clone().reshape(1, -1))
+                            break
+                        index -= len(d)
+                    else:
+                        raise ValueError("Index out of range")
+                return L
+            elif type(idx) is int:
+                # cerco il dataset di appartenenza
+                for i, d in enumerate(self.dataset):
+                    if idx < len(d):
+                        return d[idx, :].clone().reshape(1, -1)
+                    idx -= len(d)
+                raise ValueError("Index out of range")
+            else:
+                raise ValueError("Invalid index")
+        return self.dataset[idx].clone()
 
     def to(self, device: torch.device):
         if type(self.dataset) is list:
@@ -185,8 +202,3 @@ class Dataset:
         self.dataset = self.dataset.to(device)
         self.device = device
         return self
-
-    def reset(self):
-        if self.mode == "root":
-            raise ValueError("Cannot reset a root dataset")
-        self.__init__(self.path, root=False)

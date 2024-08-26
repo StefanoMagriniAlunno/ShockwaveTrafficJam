@@ -31,7 +31,9 @@ def train_sim(
         G = G.detach()
         # nella barra di progresso viene mostrato il valore dell'energia media G.item()
         profit = G.item()
-        progress_bar.set_postfix(record=profit, sim_time=s * time_step * deep_steps)
+        progress_bar.set_postfix(
+            record=profit, sim_time=(s + 1) * time_step * deep_steps
+        )
     return profit
 
 
@@ -43,7 +45,6 @@ def train(
     time_step: float,
     steps: int,
     deep_steps: int,
-    with_reset: bool,
 ) -> float:
     progress_bar_epoch = tqdm(range(epochs), desc="Epoch", leave=False)
     epoch_profit: float = 0
@@ -64,6 +65,4 @@ def train(
             )
         epoch_profit /= len(dataloader)
         progress_bar_epoch.set_postfix(mean_energy=epoch_profit)
-        if with_reset:
-            dataloader.reset()
     return epoch_profit

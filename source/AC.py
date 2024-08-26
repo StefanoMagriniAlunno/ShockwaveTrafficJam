@@ -1,4 +1,6 @@
 # source/AC.py
+import os
+
 import torch
 
 
@@ -81,6 +83,8 @@ class roboCar(torch.nn.Module):
         return x
 
     def load_weights(self, path: str):
+        if not os.path.exists(path):
+            return
         self.load_state_dict(torch.load(path, weights_only=True))
 
     def save_weights(self, path: str):
